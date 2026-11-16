@@ -165,8 +165,79 @@ def split_special_tokens(text, special_tokens):
 
     return [part for part in pattern.split(text) if part]
 
-def train_bpe(input_path, vocab_size, special_tokens):
-    raise NotImplementedError
+def merge_pair(word, pair):
+    merged = []
+    i = 0
 
+    while i < len(word):
+        if(
+            i + 1 < len(word) and word[i] == pair[0] and word[i + 1] == pair[1]
+        ):
+            merged.append(pair[0] + pair[1])
+            i += 2
+        else:
+            merged.append(word[i])
+            i += 1
+
+    return tuple(merged)
+
+def train_bpe(input_path, vocab_size, special_tokens):
+    special_tokens = list(dict.fromkeys(
+        token for token in (special_tokens or []) if token
+    ))
+
+    if vocab_size < 256 + len(special_tokens):
+        raise ValueError("vocab_size is too small")
+
+    with open(input_path, "r", encoding="utf-8") as f:
+        text = f.read()
+
+    pretoken_counts = Counter()
+
+    for segment in split_special_tokens(text, special_tokens):
+        if segment in special_tokens:
+            continue
+        for match in regex.finditer(PAT, segment):
+            pretoken_counts[match.group()] += 1
+
+    word_counts = {}
+
+    for pretoken, frequency in pretoken_counts.items():
+        byte_word = tuple(bytes([b]) for b in pretoken.encode("utf-8"))
+        word_counts[byte_word] = (word_counts.get(byte_word, 0) + frequency)
+    vocab = {i: bytes([i]) for i in range(256)}
+    merges = []
+
+    num_merges = vocab_size - 256 - len(special_tokens)
+    for _ in range(num_merges):
+        pair_counts = Counter()
+        for word, frequency in word_counts.items():
+            for i in range(len(word) - 1):
+                pair = (word[i], word[i + 1])
+                pair_counts[pair] += frequency
+
+        if not pair_counts:
+            break
+
+        best_pair = max(pair_counts, key=lambda pair: (pair_counts[pair], pair))
+        merges.append(best_pair)
+        new_token = best_pair[0] + best_pair[1]
+
+        vocab[len(vocab)] = new_token
+        new_word_counts = {}
+
+        for word, frequency in word_counts.items():
+            merged_word = merge_pair(word, best_pair)
+            new_word_counts[merged_word] = (
+                new_word_counts.get(merged_word, 0) + frequency
+            )
+
+        word_counts = new_word_counts
+
+    for token in special_tokens:
+
+            vocab[len(vocab)] = token.encode("utf-8")
+
+    return vocab, merges
 def get_tokenizer(vocab, merges, special_tokens=None) -> Any:
     return Tokenizer(vocab, merges, special_tokens)
