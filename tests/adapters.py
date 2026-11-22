@@ -11,6 +11,10 @@ from torch import Tensor
 
 from cs336_basics.tokenizer import Tokenizer, train_bpe
 
+import cs336_basics.nn as nn
+
+import cs336_basics.model as model
+
 def run_linear(
     d_in: int,
     d_out: int,
@@ -30,7 +34,12 @@ def run_linear(
         Float[Tensor, "... d_out"]: The transformed output of your linear module.
     """
 
-    raise NotImplementedError
+    return nn.run_linear(
+        d_in,
+        d_out,
+        weights,
+        in_features,
+    )
 
 
 def run_embedding(
@@ -52,7 +61,12 @@ def run_embedding(
         Float[Tensor, "... d_model"]: Batch of embeddings returned by your Embedding layer.
     """
 
-    raise NotImplementedError
+    return nn.run_embedding(
+        vocab_size,
+        d_model,
+        weights,
+        token_ids,
+    )
 
 
 def run_swiglu(
@@ -84,8 +98,14 @@ def run_swiglu(
     # swiglu.w1.weight.data = w1_weight
     # swiglu.w2.weight.data = w2_weight
     # swiglu.w3.weight.data = w3_weight
-    raise NotImplementedError
-
+    return nn.run_swiglu(
+        d_model,
+        d_ff,
+        w1_weight,
+        w2_weight,
+        w3_weight,
+        in_features,
+    )
 
 def run_scaled_dot_product_attention(
     Q: Float[Tensor, " ... queries d_k"],
@@ -105,7 +125,7 @@ def run_scaled_dot_product_attention(
     Returns:
         Float[Tensor, " ... queries d_v"]: Output of SDPA
     """
-    raise NotImplementedError
+    return nn.run_scaled_dot_product_attention(Q, K, V, mask )
 
 
 def run_multihead_self_attention(
@@ -139,7 +159,15 @@ def run_multihead_self_attention(
         Float[Tensor, " ... sequence_length d_model"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    return model.run_multihead_self_attention(
+        d_model,
+        num_heads,
+        q_proj_weight,
+        k_proj_weight,
+        v_proj_weight,
+        o_proj_weight,
+        in_features
+    )
 
 
 def run_multihead_self_attention_with_rope(
@@ -179,7 +207,18 @@ def run_multihead_self_attention_with_rope(
         Float[Tensor, " ... sequence_length d_model"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    return model.run_multihead_self_attention_with_rope(
+        d_model,
+        num_heads,
+        max_seq_len,
+        theta,
+        q_proj_weight,
+        k_proj_weight,
+        v_proj_weight,
+        o_proj_weight,
+        in_features,
+        token_positions
+    )
 
 
 def run_rope(
@@ -201,7 +240,13 @@ def run_rope(
     Returns:
         Float[Tensor, " ... sequence_length d_k"]: Tensor with RoPEd input.
     """
-    raise NotImplementedError
+    return nn.run_rope(
+        d_k,
+        theta,
+        max_seq_len,
+        in_query_or_key,
+        token_positions,
+    )
 
 
 def run_transformer_block(
@@ -379,7 +424,12 @@ def run_rmsnorm(
         Float[Tensor,"... d_model"]: Tensor of with the same shape as `in_features` with the output of running
         RMSNorm of the `in_features`.
     """
-    raise NotImplementedError
+    return nn.run_rmsnorm(
+        d_model,
+        eps,
+        weights,
+        in_features,
+    )
 
 
 def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
@@ -393,7 +443,7 @@ def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
         Float[Tensor,"..."]: of with the same shape as `in_features` with the output of applying
         SiLU to each element.
     """
-    raise NotImplementedError
+    return nn.run_silu(in_features)
 
 
 def run_get_batch(
