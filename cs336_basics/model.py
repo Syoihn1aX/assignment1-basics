@@ -1,5 +1,6 @@
 import torch
 from torch import Tensor
+from .nn import run_rmsnorm, run_swiglu
 
 def _apply_rope(
         x: Tensor,
@@ -244,3 +245,161 @@ def run_multihead_self_attention_with_rope(
     )
 
     return torch.matmul(output, o_proj_weight.T)
+
+def run_transformer_block(
+    d_model: int,
+    num_heads: int,
+    d_ff: int,
+    max_seq_len: int,
+    theta: float,
+    weights: dict[str, Tensor],
+    in_features: Tensor,
+) -> Tensor:
+    batch_size, seq_len, feature_dim = in_features.shape
+
+    assert feature_dim == d_model
+    assert d_model % num_heads == 0
+    assert seq_len <= max_seq_len
+
+    eps = 1e-5
+
+    x = in_features
+
+    # 第一个 RMSNorm
+    normalized_x = run_rmsnorm(
+        d_model,
+        eps,
+        weights["ln1.weight"],
+        x,
+    )
+
+    token_positions = torch.arange(
+        seq_len,
+        device=x.device,
+    ).unsqueeze(0).expand(
+        batch_size,
+        seq_len,
+    )
+
+    # Multi-Head Attention，内部使用 RoPE 和 causal mask
+    attention_output = run_multihead_self_attention_with_rope(
+        d_model=d_model,
+        num_heads=num_heads,
+        max_seq_len=max_seq_len,
+        theta=theta,
+        q_proj_weight=weights["attn.q_proj.weight"],
+        k_proj_weight=weights["attn.k_proj.weight"],
+        v_proj_weight=weights["attn.v_proj.weight"],
+        o_proj_weight=weights["attn.output_proj.weight"],
+        in_features=normalized_x,
+        token_positions=token_positions,
+    )
+
+    # 第一次残差连接
+    x = x + attention_output
+
+    # 第二个 RMSNorm
+    normalized_x = run_rmsnorm(
+        d_model,
+        eps,
+        weights["ln2.weight"],
+        x,
+    )
+
+    # 复用已经实现的 SwiGLU
+    ffn_output = run_swiglu(
+        d_model,
+        d_ff,
+        weights["ffn.w1.weight"],
+        weights["ffn.w2.weight"],
+        weights["ffn.w3.weight"],
+        normalized_x,
+    )
+
+    # 第二次残差连接
+    x = x + ffn_output
+
+    return x
+
+def run_transformer_lm(
+    vocab_size: int,
+    context_length: int,
+    d_model: int,
+    num_layers: int,
+    num_heads: int,
+    d_ff: int,
+    rope_theta: float,
+    weights: dict[str, Tensor],
+    in_indices: Tensor,
+) -> Tensor:
+
+    batch_size, sequence_length = in_indices.shape
+
+    assert in_indices.ndim == 2
+    assert in_indices.dtype in (
+        torch.int8,
+        torch.int16,
+        torch.int32,
+        torch.int64,
+    )
+
+    if sequence_length > context_length:
+        in_indices = in_indices[:, :context_length]
+        sequence_length = context_length
+
+    x = weights["token_embeddings.weight"][in_indices]
+
+    for layer_idx in range(num_layers):
+        layer_weights = {
+            "attn.q_proj.weight": weights[
+                f"layers.{layer_idx}.attn.q_proj.weight"
+            ],
+            "attn.k_proj.weight": weights[
+                f"layers.{layer_idx}.attn.k_proj.weight"
+            ],
+            "attn.v_proj.weight": weights[
+                f"layers.{layer_idx}.attn.v_proj.weight"
+            ],
+            "attn.output_proj.weight": weights[
+                f"layers.{layer_idx}.attn.output_proj.weight"
+            ],
+            "ln1.weight": weights[
+                f"layers.{layer_idx}.ln1.weight"
+            ],
+            "ffn.w1.weight": weights[
+                f"layers.{layer_idx}.ffn.w1.weight"
+            ],
+            "ffn.w2.weight": weights[
+                f"layers.{layer_idx}.ffn.w2.weight"
+            ],
+            "ffn.w3.weight": weights[
+                f"layers.{layer_idx}.ffn.w3.weight"
+            ],
+            "ln2.weight": weights[
+                f"layers.{layer_idx}.ln2.weight"
+            ],
+        }
+
+        x = run_transformer_block(
+            d_model=d_model,
+            num_heads=num_heads,
+            d_ff=d_ff,
+            max_seq_len=context_length,
+            theta=rope_theta,
+            weights=layer_weights,
+            in_features=x,
+        )
+
+    x = run_rmsnorm(
+        d_model=d_model,
+        eps=1e-5,
+        weights=weights["ln_final.weight"],
+        in_features=x,
+    )
+
+    logits = torch.matmul(
+        x,
+        weights["lm_head.weight"].T,
+    )
+
+    return logits
