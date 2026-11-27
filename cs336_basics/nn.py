@@ -123,3 +123,45 @@ def run_rope(
     ).flatten(-2)
 
     return output.to(original_dtype)
+
+def run_softmax(
+        in_features: Tensor,
+        dim: int,
+) -> Tensor:
+    shifted_inputs = in_features - torch.amax(
+        in_features,
+        dim=dim,
+        keepdim=True,
+    )
+
+    exp_inputs = torch.exp(shifted_inputs)
+
+    denominator = torch.sum(
+        exp_inputs,
+        dim=dim,
+        keepdim=True,
+    )
+
+    return exp_inputs / denominator
+
+def run_cross_entropy(
+        inputs: Tensor,
+        targets: Tensor,
+) -> Tensor:
+
+    log_sum_exp = torch.logsumexp(
+        inputs,
+        dim=-1,
+    )
+
+    target_logits = inputs[
+        torch.arange(
+            inputs.shape[0],
+            device=inputs.device,
+        ),
+        targets,
+    ]
+
+    losses = log_sum_exp - target_logits
+
+    return losses.mean()
